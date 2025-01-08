@@ -147,6 +147,43 @@ body {
   background: var(--accent-color);
   opacity: 1;
 }
+
+/* Adding new debug console styles */
+.debug-console {
+  width: 100%;
+  max-width: 800px;
+  min-height: 200px;
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid var(--accent-color);
+  border-radius: 8px;
+  margin-top: 20px;
+  padding: 15px;
+  font-family: monospace;
+  overflow-y: auto;
+  max-height: 400px;
+}
+
+.debug-entry {
+  margin: 5px 0;
+  padding: 5px;
+  border-left: 3px solid var(--accent-color);
+}
+
+.debug-error {
+  color: #ff4444;
+}
+
+.debug-warning {
+  color: #ffaa00;
+}
+
+.debug-info {
+  color: #00aaff;
+}
+
+.debug-success {
+  color: #44ff44;
+}
 </style>
 </head>
 <body>
@@ -184,6 +221,11 @@ body {
     </div>
   </div>
 
+  <!-- Adding debug console -->
+  <div class="debug-console" id="debug-console">
+    <div class="debug-entry debug-info">Debug console initialized...</div>
+  </div>
+
 <script>
 // State management
 let monsterContext = '';
@@ -191,6 +233,7 @@ let currentPhase = 'idle';
 let monsterHtml = '';
 let monsterCss = '';
 let monsterJs = '';
+let debugHistory = [];
 
 // DOM Elements
 const contextInput = document.getElementById('context-input');
@@ -199,28 +242,54 @@ const spinButton = document.getElementById('spin-button');
 const statusMessage = document.getElementById('status-message');
 const loading = document.getElementById('loading');
 const monsterDisplay = document.getElementById('monster-display');
+const debugConsole = document.getElementById('debug-console');
 
 // Phase indicators
 const phaseHtml = document.getElementById('phase-html');
 const phaseCss = document.getElementById('phase-css');
 const phaseJs = document.getElementById('phase-js');
 
-// Helper function to update status
+// Debug logging function
+function debugLog(message, type = 'info') {
+  const timestamp = new Date().toISOString();
+  const logEntry = {
+    timestamp,
+    message,
+    type
+  };
+  
+  debugHistory.push(logEntry);
+  
+  const debugEntry = document.createElement('div');
+  debugEntry.className = `debug-entry debug-${type}`;
+  debugEntry.textContent = `[${timestamp}] ${message}`;
+  debugConsole.appendChild(debugEntry);
+  debugConsole.scrollTop = debugConsole.scrollHeight;
+  
+  // Also log to console for browser dev tools
+  console[type === 'error' ? 'error' : 'log'](`[${type.toUpperCase()}] ${message}`);
+}
+
+// Enhanced helper function to update status with debug logging
 function updateStatus(message, isLoading = false) {
   statusMessage.textContent = message;
   loading.style.display = isLoading ? 'block' : 'none';
+  debugLog(message, isLoading ? 'info' : 'success');
 }
 
-// Helper function to update phase indicators
+// Enhanced helper function to update phase indicators
 function updatePhase(phase) {
   [phaseHtml, phaseCss, phaseJs].forEach(el => el.classList.remove('active'));
   if (phase === 'html') phaseHtml.classList.add('active');
   if (phase === 'css') phaseCss.classList.add('active');
   if (phase === 'js') phaseJs.classList.add('active');
+  debugLog(`Phase changed to: ${phase}`, 'info');
 }
 
-// AI Request function
+// Enhanced AI Request function with better error handling and debugging
 async function makeAIRequest(phase, context) {
+  debugLog(`Starting ${phase.toUpperCase()} generation request...`, 'info');
+  
   try {
     const response = await fetch('/api/ai_completion', {
       method: 'POST',
@@ -250,88 +319,123 @@ async function makeAIRequest(phase, context) {
       }),
     });
     
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
     const data = await response.json();
+    debugLog(`Successfully generated ${phase.toUpperCase()} code`, 'success');
     return data;
   } catch (error) {
-    console.error('Error making AI request:', error);
-    throw new Error('Failed to generate monster part');
+    debugLog(`Error in ${phase.toUpperCase()} generation: ${error.message}`, 'error');
+    throw error;
   }
 }
 
-// Feed button click handler
+// Enhanced feed button click handler with better error handling
 feedButton.addEventListener('click', async () => {
   monsterContext = contextInput.value.trim();
   
   if (!monsterContext) {
+    debugLog('No context provided', 'warning');
     updateStatus('Please provide some context first!');
     return;
   }
 
-  // Start HTML Phase
-  updateStatus('Generating HTML structure...', true);
-  updatePhase('html');
+  debugLog(`Starting monster generation with context length: ${monsterContext.length}`, 'info');
   
   try {
+    // HTML Phase
+    updateStatus('Generating HTML structure...', true);
+    updatePhase('html');
+    
     const htmlResponse = await makeAIRequest('html', monsterContext);
     monsterHtml = htmlResponse.code;
     updateStatus('HTML generated! Waiting for CSS phase...', false);
     
-    // Wait 15 seconds before CSS phase
+    // CSS Phase
     setTimeout(async () => {
-      updateStatus('Generating CSS styles...', true);
-      updatePhase('css');
-      
-      const cssResponse = await makeAIRequest('css', monsterContext);
-      monsterCss = cssResponse.code;
-      updateStatus('CSS generated! Waiting for JS phase...', false);
-      
-      // Wait 15 seconds before JS phase
-      setTimeout(async () => {
-        updateStatus('Generating JavaScript animations...', true);
-        updatePhase('js');
+      try {
+        updateStatus('Generating CSS styles...', true);
+        updatePhase('css');
         
-        const jsResponse = await makeAIRequest('js', monsterContext);
-        monsterJs = jsResponse.code;
+        const cssResponse = await makeAIRequest('css', monsterContext);
+        monsterCss = cssResponse.code;
+        updateStatus('CSS generated! Waiting for JS phase...', false);
         
-        updateStatus('Monster is ready! You can now spin the wheel!', false);
-        spinButton.disabled = false;
-      }, 15000);
+        // JS Phase
+        setTimeout(async () => {
+          try {
+            updateStatus('Generating JavaScript animations...', true);
+            updatePhase('js');
+            
+            const jsResponse = await makeAIRequest('js', monsterContext);
+            monsterJs = jsResponse.code;
+            
+            updateStatus('Monster is ready! You can now spin the wheel!', false);
+            spinButton.disabled = false;
+          } catch (error) {
+            debugLog(`JS Phase Error: ${error.message}`, 'error');
+            updateStatus('Error in JS generation phase');
+          }
+        }, 15000);
+      } catch (error) {
+        debugLog(`CSS Phase Error: ${error.message}`, 'error');
+        updateStatus('Error in CSS generation phase');
+      }
     }, 15000);
   } catch (error) {
-    updateStatus('Error generating monster: ' + error.message);
+    debugLog(`HTML Phase Error: ${error.message}`, 'error');
+    updateStatus('Error in HTML generation phase');
   }
 });
 
-// Spin button click handler
+// Enhanced spin button click handler with error catching
 spinButton.addEventListener('click', () => {
-  // Create a temporary stylesheet for the monster's CSS
-  const styleSheet = document.createElement('style');
-  styleSheet.textContent = monsterCss;
-  document.head.appendChild(styleSheet);
+  debugLog('Attempting to apply generated monster code...', 'info');
   
-  // Insert the monster's HTML
-  monsterDisplay.innerHTML = monsterHtml;
-  
-  // Create and execute the monster's JavaScript
-  const script = document.createElement('script');
-  script.textContent = monsterJs;
-  document.body.appendChild(script);
-});
-
-// Initial animation for the monster face
-document.querySelectorAll('.eye').forEach(eye => {
-  eye.style.animation = 'blink 2s infinite';
-});
-
-// Add this CSS for the blinking animation
-const blinkStyle = document.createElement('style');
-blinkStyle.textContent = `
-  @keyframes blink {
-    0%, 90%, 100% { transform: scaleY(1); }
-    95% { transform: scaleY(0.1); }
+  try {
+    // Create a temporary stylesheet for the monster's CSS
+    const styleSheet = document.createElement('style');
+    styleSheet.textContent = monsterCss;
+    document.head.appendChild(styleSheet);
+    debugLog('Applied monster CSS', 'success');
+    
+    // Insert the monster's HTML
+    monsterDisplay.innerHTML = monsterHtml;
+    debugLog('Applied monster HTML', 'success');
+    
+    // Create and execute the monster's JavaScript
+    const script = document.createElement('script');
+    script.textContent = monsterJs;
+    document.body.appendChild(script);
+    debugLog('Applied monster JavaScript', 'success');
+  } catch (error) {
+    debugLog(`Error applying monster code: ${error.message}`, 'error');
+    updateStatus('Error applying monster code');
   }
-`;
-document.head.appendChild(blinkStyle);
+});
+
+// Initial animation setup
+try {
+  document.querySelectorAll('.eye').forEach(eye => {
+    eye.style.animation = 'blink 2s infinite';
+  });
+  
+  const blinkStyle = document.createElement('style');
+  blinkStyle.textContent = `
+    @keyframes blink {
+      0%, 90%, 100% { transform: scaleY(1); }
+      95% { transform: scaleY(0.1); }
+    }
+  `;
+  document.head.appendChild(blinkStyle);
+  debugLog('Initial monster animation setup complete', 'success');
+} catch (error) {
+  debugLog(`Error setting up initial animation: ${error.message}`, 'error');
+}
+
+debugLog('Monster Wheel initialization complete', 'success');
 </script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body></html>
