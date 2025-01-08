@@ -1,4 +1,4 @@
-<html><head><base href="/" />
+<html><head><base href="/">
 <title>The AI Monster Wheel</title>
 <style>
 /* Core styles */
@@ -167,6 +167,12 @@ body {
   margin: 5px 0;
   padding: 5px;
   border-left: 3px solid var(--accent-color);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.debug-entry:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .debug-error {
@@ -183,6 +189,16 @@ body {
 
 .debug-success {
   color: #44ff44;
+}
+
+.stack-trace {
+  font-size: 12px;
+  padding: 10px;
+  margin-top: 5px;
+  background: rgba(0, 0, 0, 0.5);
+  border-left: 3px solid #666;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 </style>
 </head>
@@ -226,16 +242,12 @@ body {
     <div class="debug-entry debug-info">Debug console initialized...</div>
   </div>
 
-<script>
-// State management
-let monsterContext = '';
+<script>let monsterContext = '';
 let currentPhase = 'idle';
 let monsterHtml = '';
 let monsterCss = '';
 let monsterJs = '';
 let debugHistory = [];
-
-// DOM Elements
 const contextInput = document.getElementById('context-input');
 const feedButton = document.getElementById('feed-button');
 const spinButton = document.getElementById('spin-button');
@@ -243,41 +255,44 @@ const statusMessage = document.getElementById('status-message');
 const loading = document.getElementById('loading');
 const monsterDisplay = document.getElementById('monster-display');
 const debugConsole = document.getElementById('debug-console');
-
-// Phase indicators
 const phaseHtml = document.getElementById('phase-html');
 const phaseCss = document.getElementById('phase-css');
 const phaseJs = document.getElementById('phase-js');
-
-// Debug logging function
 function debugLog(message, type = 'info') {
   const timestamp = new Date().toISOString();
+  const stackTrace = new Error().stack?.split('\n').slice(2).join('\n') || 'No stack trace';
   const logEntry = {
     timestamp,
     message,
-    type
+    type,
+    stackTrace
   };
-  
   debugHistory.push(logEntry);
-  
   const debugEntry = document.createElement('div');
   debugEntry.className = `debug-entry debug-${type}`;
   debugEntry.textContent = `[${timestamp}] ${message}`;
+  const traceElement = document.createElement('pre');
+  traceElement.className = 'stack-trace';
+  traceElement.style.display = 'none';
+  traceElement.textContent = stackTrace;
+  debugEntry.addEventListener('click', () => {
+    traceElement.style.display = traceElement.style.display === 'none' ? 'block' : 'none';
+  });
+  debugEntry.appendChild(traceElement);
   debugConsole.appendChild(debugEntry);
   debugConsole.scrollTop = debugConsole.scrollHeight;
-  
-  // Also log to console for browser dev tools
-  console[type === 'error' ? 'error' : 'log'](`[${type.toUpperCase()}] ${message}`);
+  console.groupCollapsed(`[${type.toUpperCase()}] ${message}`);
+  console.log('Timestamp:', timestamp);
+  console.log('Message:', message);
+  console.log('Type:', type);
+  console.log('Stack Trace:', stackTrace);
+  console.groupEnd();
 }
-
-// Enhanced helper function to update status with debug logging
 function updateStatus(message, isLoading = false) {
   statusMessage.textContent = message;
   loading.style.display = isLoading ? 'block' : 'none';
   debugLog(message, isLoading ? 'info' : 'success');
 }
-
-// Enhanced helper function to update phase indicators
 function updatePhase(phase) {
   [phaseHtml, phaseCss, phaseJs].forEach(el => el.classList.remove('active'));
   if (phase === 'html') phaseHtml.classList.add('active');
@@ -285,93 +300,97 @@ function updatePhase(phase) {
   if (phase === 'js') phaseJs.classList.add('active');
   debugLog(`Phase changed to: ${phase}`, 'info');
 }
-
-// Enhanced AI Request function with better error handling and debugging
 async function makeAIRequest(phase, context) {
   debugLog(`Starting ${phase.toUpperCase()} generation request...`, 'info');
-  
+  debugLog(`Request context length: ${context.length}`, 'info');
+  debugLog(`Request phase: ${phase}`, 'info');
   try {
+    debugLog('Initiating fetch request...', 'info');
+    const requestBody = {
+      prompt: `Based on the following context, generate the ${phase.toUpperCase()} part of a monster visualization:
+      
+      interface Response {
+        code: string;
+        description: string;
+      }
+      
+      {
+        "code": "${phase === 'html' ? '<div class="monster">...</div>' : phase === 'css' ? '.monster { ... }' : 'function animateMonster() { ... }'}",
+        "description": "A detailed description of the generated code and its purpose"
+      }`,
+      data: context
+    };
+    debugLog(`Request payload: ${JSON.stringify(requestBody, null, 2)}`, 'info');
     const response = await fetch('/api/ai_completion', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        'Accept': 'application/json'
       },
-      body: JSON.stringify({
-        prompt: `Based on the following context, generate the ${phase.toUpperCase()} part of a monster visualization:
-        
-        <typescript-interface>
-        interface Response {
-          code: string;
-          description: string;
-        }
-        </typescript-interface>
-        
-        <example>
-        {
-          "code": "${phase === 'html' ? '<div class="monster">...</div>' : 
-                   phase === 'css' ? '.monster { ... }' : 
-                   'function animateMonster() { ... }'}",
-          "description": "A detailed description of the generated code and its purpose"
-        }
-        </example>`,
-        data: context
-      }),
+      body: JSON.stringify(requestBody)
     });
-    
     if (!response.ok) {
+      debugLog(`Server responded with status: ${response.status}`, 'error');
+      debugLog(`Response status text: ${response.statusText}`, 'error');
       throw new Error(`HTTP error! status: ${response.status}`);
     }
-    
     const data = await response.json();
     debugLog(`Successfully generated ${phase.toUpperCase()} code`, 'success');
+    debugLog(`Response data: ${JSON.stringify(data, null, 2)}`, 'info');
     return data;
   } catch (error) {
     debugLog(`Error in ${phase.toUpperCase()} generation: ${error.message}`, 'error');
+    debugLog(`Error details: ${error.toString()}`, 'error');
+    if (error instanceof TypeError) {
+      debugLog('Network error detected - possible connectivity issue', 'error');
+    }
     throw error;
   }
 }
-
-// Enhanced feed button click handler with better error handling
 feedButton.addEventListener('click', async () => {
   monsterContext = contextInput.value.trim();
-  
   if (!monsterContext) {
     debugLog('No context provided', 'warning');
+    debugLog('Context validation failed - empty input', 'warning');
     updateStatus('Please provide some context first!');
     return;
   }
-
   debugLog(`Starting monster generation with context length: ${monsterContext.length}`, 'info');
-  
+  debugLog(`Context preview: ${monsterContext.substring(0, 100)}...`, 'info');
   try {
-    // HTML Phase
     updateStatus('Generating HTML structure...', true);
     updatePhase('html');
-    
-    const htmlResponse = await makeAIRequest('html', monsterContext);
+    const htmlResponse = await makeAIRequest('html', monsterContext).catch(error => {
+      debugLog(`Detailed HTML phase error: ${error.stack}`, 'error');
+      throw error;
+    });
     monsterHtml = htmlResponse.code;
+    debugLog('HTML generation completed successfully', 'success');
+    debugLog(`Generated HTML length: ${monsterHtml.length}`, 'info');
     updateStatus('HTML generated! Waiting for CSS phase...', false);
-    
-    // CSS Phase
     setTimeout(async () => {
       try {
         updateStatus('Generating CSS styles...', true);
         updatePhase('css');
-        
-        const cssResponse = await makeAIRequest('css', monsterContext);
+        const cssResponse = await makeAIRequest('css', monsterContext).catch(error => {
+          debugLog(`Detailed CSS phase error: ${error.stack}`, 'error');
+          throw error;
+        });
         monsterCss = cssResponse.code;
+        debugLog('CSS generation completed successfully', 'success');
+        debugLog(`Generated CSS length: ${monsterCss.length}`, 'info');
         updateStatus('CSS generated! Waiting for JS phase...', false);
-        
-        // JS Phase
         setTimeout(async () => {
           try {
             updateStatus('Generating JavaScript animations...', true);
             updatePhase('js');
-            
-            const jsResponse = await makeAIRequest('js', monsterContext);
+            const jsResponse = await makeAIRequest('js', monsterContext).catch(error => {
+              debugLog(`Detailed JS phase error: ${error.stack}`, 'error');
+              throw error;
+            });
             monsterJs = jsResponse.code;
-            
+            debugLog('JS generation completed successfully', 'success');
+            debugLog(`Generated JS length: ${monsterJs.length}`, 'info');
             updateStatus('Monster is ready! You can now spin the wheel!', false);
             spinButton.disabled = false;
           } catch (error) {
@@ -389,23 +408,15 @@ feedButton.addEventListener('click', async () => {
     updateStatus('Error in HTML generation phase');
   }
 });
-
-// Enhanced spin button click handler with error catching
 spinButton.addEventListener('click', () => {
   debugLog('Attempting to apply generated monster code...', 'info');
-  
   try {
-    // Create a temporary stylesheet for the monster's CSS
     const styleSheet = document.createElement('style');
     styleSheet.textContent = monsterCss;
     document.head.appendChild(styleSheet);
     debugLog('Applied monster CSS', 'success');
-    
-    // Insert the monster's HTML
     monsterDisplay.innerHTML = monsterHtml;
     debugLog('Applied monster HTML', 'success');
-    
-    // Create and execute the monster's JavaScript
     const script = document.createElement('script');
     script.textContent = monsterJs;
     document.body.appendChild(script);
@@ -415,13 +426,10 @@ spinButton.addEventListener('click', () => {
     updateStatus('Error applying monster code');
   }
 });
-
-// Initial animation setup
 try {
   document.querySelectorAll('.eye').forEach(eye => {
     eye.style.animation = 'blink 2s infinite';
   });
-  
   const blinkStyle = document.createElement('style');
   blinkStyle.textContent = `
     @keyframes blink {
@@ -434,8 +442,6 @@ try {
 } catch (error) {
   debugLog(`Error setting up initial animation: ${error.message}`, 'error');
 }
-
-debugLog('Monster Wheel initialization complete', 'success');
-</script>
+debugLog('Monster Wheel initialization complete', 'success');</script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body></html>
